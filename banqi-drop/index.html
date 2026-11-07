@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <!-- viewport-fit=cover: draw under the notch; the game keeps UI inside env(safe-area-inset-*) -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>暗棋方塊</title>
+  <!-- R28: two taps on the board drop the piece; the browser must not take them as a double-tap zoom or a word selection. -->
+  <style>html,body{background:#1b2a3a;height:100%;margin:0;overflow:hidden}body,canvas{touch-action:none;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent}</style>
+  <script>(function(C) {
+	var w = window, d = document;
+	var local = new URL("./", d.baseURI).href;
+	var maintenance = local.indexOf(C.cdn) === 0;
+	var FAIL = "asset-cdn-fail:" + C.cdn, RELOAD = "asset-cdn-reload:" + C.cdn;
+	function store(kind, key, value) {
+		try {
+			var s = w[kind];
+			if (value === void 0) return s.getItem(key);
+			if (value === null) s.removeItem(key);
+			else s.setItem(key, value);
+			return value;
+		} catch (e) {
+			return null;
+		}
+	}
+	function markFailed() {
+		store("localStorage", FAIL, String(Date.now()));
+	}
+	var last = Number(store("localStorage", FAIL)) || 0;
+	var integrity = {};
+	for (var f in C.sri) {
+		integrity[C.cdn + f] = C.sri[f];
+		integrity[local + f] = C.sri[f];
+	}
+	var probeOk = local + C.probe + "?ok", probeBad = local + C.probe;
+	integrity[probeOk] = C.probeSri;
+	integrity[probeBad] = "sha384-" + "A".repeat(64);
+	var map = d.createElement("script");
+	map.type = "importmap";
+	map.textContent = JSON.stringify({
+		imports: {},
+		integrity
+	});
+	d.head.appendChild(map);
+	function failAndReload() {
+		if (!w.__assetCdn || w.__assetCdn.from !== "cdn") return false;
+		markFailed();
+		if (store("sessionStorage", RELOAD)) return false;
+		if (store("sessionStorage", RELOAD, "1") !== "1" || !store("localStorage", FAIL)) return false;
+		location.reload();
+		return true;
+	}
+	w.addEventListener("vite:preloadError", function(e) {
+		if (failAndReload()) e.preventDefault();
+	});
+	var added = [];
+	function link(rel, href, sri) {
+		var l = d.createElement("link");
+		l.rel = rel;
+		l.crossOrigin = "anonymous";
+		l.href = href;
+		if (sri) l.integrity = sri;
+		d.head.appendChild(l);
+		added.push(l);
+		return l;
+	}
+	function start(base, from, integrityOk) {
+		w.__ASSET_BASE__ = base;
+		w.__assetCdn = {
+			from,
+			base,
+			integrity: integrityOk,
+			fail: failAndReload
+		};
+		if (from === "maintenance") w.__assetCdn.maintenance = {
+			portals: C.portals,
+			pollMs: C.maintenancePollMs
+		};
+		var pending = C.css.length + 1;
+		var boot = from === "cdn" ? setTimeout(failAndReload, C.bootTimeoutMs) : 0;
+		function loaded() {
+			if (--pending === 0) clearTimeout(boot);
+		}
+		for (var i = 0; i < C.css.length; i++) {
+			var css = link("stylesheet", base + C.css[i], C.sri[C.css[i]]);
+			css.onload = loaded;
+			css.onerror = function() {
+				clearTimeout(boot);
+				failAndReload();
+			};
+		}
+		for (var j = 0; j < C.preload.length; j++) link("modulepreload", base + C.preload[j], C.sri[C.preload[j]]);
+		var s = d.createElement("script");
+		s.type = "module";
+		s.crossOrigin = "anonymous";
+		s.integrity = C.sri[C.entry];
+		s.src = base + C.entry;
+		s.onload = loaded;
+		s.onerror = function() {
+			clearTimeout(boot);
+			if (from !== "cdn") {
+				w.__assetCdn.error = true;
+				return;
+			}
+			markFailed();
+			for (var k = 0; k < added.length; k++) {
+				added[k].onerror = null;
+				added[k].remove();
+			}
+			added = [];
+			s.remove();
+			start(local, "portal", integrityOk);
+		};
+		d.head.appendChild(s);
+	}
+	if (maintenance) return start(local, "maintenance", null);
+	var enforced = new Promise(function(resolve) {
+		setTimeout(function() {
+			resolve(false);
+		}, C.timeoutMs);
+		import(probeOk).then(function() {
+			return import(probeBad).then(function() {
+				resolve(false);
+			}, function() {
+				resolve(true);
+			});
+		}, function() {
+			resolve(false);
+		});
+	});
+	if (last && Date.now() - last < C.failMs) return enforced.then(function(ok) {
+		start(local, "portal", ok);
+	});
+	var ctl = typeof AbortController === "function" ? new AbortController() : null;
+	var done = false;
+	var timer = 0;
+	function fallback(failed, ok) {
+		if (done) return;
+		done = true;
+		clearTimeout(timer);
+		if (failed) markFailed();
+		start(local, "portal", ok);
+	}
+	enforced.then(function(ok) {
+		if (!ok) return fallback(false, false);
+		timer = setTimeout(function() {
+			if (ctl) ctl.abort();
+			fallback(true, true);
+		}, C.timeoutMs);
+		return fetch(C.cdn + C.entry, {
+			method: "HEAD",
+			mode: "cors",
+			cache: "no-store",
+			signal: ctl ? ctl.signal : void 0
+		}).then(function(r) {
+			var type = r.headers.get("content-type") || "";
+			if (!r.ok || !/javascript/i.test(type)) return fallback(true, true);
+			if (done) return;
+			done = true;
+			clearTimeout(timer);
+			store("sessionStorage", RELOAD, null);
+			start(C.cdn, "cdn", true);
+		}, function() {
+			fallback(true, true);
+		});
+	});
+})({"cdn":"https://linchao0815.github.io/agame-cdn/banqi-drop/","portals":["https://agame.duckdns.org/games/banqi-drop/","https://168-110-59-183.sslip.io/games/banqi-drop/"],"entry":"assets/index-gcUmgy4F.js","preload":["assets/rolldown-runtime-hePW80VL.js","assets/CanvasPool-blsTu2TH.js","assets/canvasUtils-CgJZci8c.js","assets/init-Bc_Z5y89.js","assets/RenderTargetSystem-DkuGn65b.js","assets/getTextureBatchBindGroup-BxiQ_M0h.js","assets/CanvasRenderer-oCfIV9ni.js","assets/DebugRenderer-D9jdCNiG.js","assets/getPo2TextureFromSource-RDXnlaaP.js","assets/getTexelRangeRects-DNXMMRk0.js","assets/perf-collector-Sqct7RXF.js"],"css":[],"sri":{"assets/CanvasPool-blsTu2TH.js":"sha384-1Lk7hclD+jAr9c2jOUJ2qApWKoDkiiviD4xYbYGXTOvMyn1oHJuDNVhOdC+zC3lu","assets/CanvasRenderer-oCfIV9ni.js":"sha384-j6JGJaVgWhNnQ2fdMyP956dVbFELgotrp0gQbUmmgyzWLpGK5EkHwJUTiTtGIgK1","assets/DebugRenderer-D9jdCNiG.js":"sha384-R9qjmajcknqDVkLjIasM3uhZv97qzavRvx4WUH2UjWPtN4USoThMwZ1HpzhRCdDe","assets/RenderTargetSystem-DkuGn65b.js":"sha384-a6mfcUMTgF5b6gi18Bw89VykCSoxyRxteLEKHXxoq7Ya/guktbb4OaC5Li7an+Dm","assets/WebGLRenderer-CBe5ehpR.js":"sha384-j0T5RkfoCe0dBMsp0z7eGf62pIhFEDjEdW8gmLgaefEGwUlbUpQjZT8u/6d4uLLw","assets/WebGPURenderer-DvP50eCR.js":"sha384-zbewYxYQpucDtmQpeEkXjZfv0W2sSYrlOxv1mxrGnXPTz94ou5UbeG2oyC7ptlYR","assets/browserAll-Dh_OXPWt.js":"sha384-ZUOO7WeZeLvJY0kS3qOrvhla8RAdoedQNpHg4eKYlj9aHJ0flo7il8Fnbn3Vxuiy","assets/canvasUtils-CgJZci8c.js":"sha384-V9bfQppsIwgVgiMrnXNF1QBjasUc1yno9p4WuTlZqD9rgIUze+E86rjtibN4qj9R","assets/getPo2TextureFromSource-RDXnlaaP.js":"sha384-P0YpSCkdYoUd0tswt/sx3yvD70/xmO1Q8i4JVbRIswiI5kg/ta8sHcFNm9j1Lbfr","assets/getTexelRangeRects-DNXMMRk0.js":"sha384-HnNVHAdzD8ylon9flijjOgEXV6Y8sOZ6qRqjflazwFme9W34bdRj6+wsdWnXHM9x","assets/getTextureBatchBindGroup-BxiQ_M0h.js":"sha384-7y7+D1N42ppSWE0hZpxbbJjbGGatIA1xV7pH9RCYafT49egWRV42J2Ei3BuigNfZ","assets/index-gcUmgy4F.js":"sha384-AzLxMvyHiZv48fS7Yqmr0aS8S6kbvXf5LY/52OTTic0JQiL/WHz13h99GoIDxahT","assets/init-B-UNIa9x.js":"sha384-70858Tl5sRw9y7z8H3wlioGC/Zr1YybN4l9C0k1O2wKkIdgmYs/CoiQdgEMvk4/r","assets/init-Bc_Z5y89.js":"sha384-s/x2Q4jASIN6LBRP9lLOo/kTxUICamlgsw0I8A41NKXRBqUBNEgoHL1DMXQqJnRm","assets/perf-collector-Sqct7RXF.js":"sha384-b4KE6tLnMkbnIMhTzYyYI2Y0Rq6h+AypRsh6FH+CD6gt+FU6F4NcJrW2X4TLtp9M","assets/rolldown-runtime-hePW80VL.js":"sha384-IByvdQ9C8ZQsuk2kGiIBN/JFticnExQLZS0hqbEY2/527AMsvHLb3FQFuVTiIpj4","assets/server-session-CM1H1sV8.js":"sha384-54hhB22RLF++bZFJUo3jJTU9kc1R1AfI5VY77IAKr1RQdKctmnCTTWSdFVC5rPAz","assets/webworkerAll-DUjDm-8a.js":"sha384-i/EBOUMHcP0WQyqASorlWvI3aq7/OVLyDgDRl6E3KmKNEE1EPnliwJZTI2WGmoFY"},"probe":"assets/asset-cdn-probe.js","probeSri":"sha384-TfNfbmwP7o3QYLOKT2ylblYjdqWkjpHkmoyPgwQk/jxycBM1LOGLUePUz56+OBZF","timeoutMs":3000,"bootTimeoutMs":15000,"maintenancePollMs":10000,"failMs":1800000});</script>
+  </head>
+<body>
+</body>
+</html>
