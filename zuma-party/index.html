@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <!-- viewport-fit=cover: draw under the notch; the game keeps UI inside env(safe-area-inset-*) -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>祖瑪派對</title>
+  <style>html,body{background:#1b2a3a;height:100%;margin:0;overflow:hidden}</style>
+  <script>(function(C) {
+	var w = window, d = document;
+	var local = new URL("./", d.baseURI).href;
+	var maintenance = local.indexOf(C.cdn) === 0;
+	var FAIL = "asset-cdn-fail:" + C.cdn, RELOAD = "asset-cdn-reload:" + C.cdn;
+	function store(kind, key, value) {
+		try {
+			var s = w[kind];
+			if (value === void 0) return s.getItem(key);
+			if (value === null) s.removeItem(key);
+			else s.setItem(key, value);
+			return value;
+		} catch (e) {
+			return null;
+		}
+	}
+	function markFailed() {
+		store("localStorage", FAIL, String(Date.now()));
+	}
+	var last = Number(store("localStorage", FAIL)) || 0;
+	var integrity = {};
+	for (var f in C.sri) {
+		integrity[C.cdn + f] = C.sri[f];
+		integrity[local + f] = C.sri[f];
+	}
+	var probeOk = local + C.probe + "?ok", probeBad = local + C.probe;
+	integrity[probeOk] = C.probeSri;
+	integrity[probeBad] = "sha384-" + "A".repeat(64);
+	var map = d.createElement("script");
+	map.type = "importmap";
+	map.textContent = JSON.stringify({
+		imports: {},
+		integrity
+	});
+	d.head.appendChild(map);
+	function failAndReload() {
+		if (!w.__assetCdn || w.__assetCdn.from !== "cdn") return false;
+		markFailed();
+		if (store("sessionStorage", RELOAD)) return false;
+		if (store("sessionStorage", RELOAD, "1") !== "1" || !store("localStorage", FAIL)) return false;
+		location.reload();
+		return true;
+	}
+	w.addEventListener("vite:preloadError", function(e) {
+		if (failAndReload()) e.preventDefault();
+	});
+	var added = [];
+	function link(rel, href, sri) {
+		var l = d.createElement("link");
+		l.rel = rel;
+		l.crossOrigin = "anonymous";
+		l.href = href;
+		if (sri) l.integrity = sri;
+		d.head.appendChild(l);
+		added.push(l);
+		return l;
+	}
+	function start(base, from, integrityOk) {
+		w.__ASSET_BASE__ = base;
+		w.__assetCdn = {
+			from,
+			base,
+			integrity: integrityOk,
+			fail: failAndReload
+		};
+		if (from === "maintenance") w.__assetCdn.maintenance = {
+			portals: C.portals,
+			pollMs: C.maintenancePollMs
+		};
+		var pending = C.css.length + 1;
+		var boot = from === "cdn" ? setTimeout(failAndReload, C.bootTimeoutMs) : 0;
+		function loaded() {
+			if (--pending === 0) clearTimeout(boot);
+		}
+		for (var i = 0; i < C.css.length; i++) {
+			var css = link("stylesheet", base + C.css[i], C.sri[C.css[i]]);
+			css.onload = loaded;
+			css.onerror = function() {
+				clearTimeout(boot);
+				failAndReload();
+			};
+		}
+		for (var j = 0; j < C.preload.length; j++) link("modulepreload", base + C.preload[j], C.sri[C.preload[j]]);
+		var s = d.createElement("script");
+		s.type = "module";
+		s.crossOrigin = "anonymous";
+		s.integrity = C.sri[C.entry];
+		s.src = base + C.entry;
+		s.onload = loaded;
+		s.onerror = function() {
+			clearTimeout(boot);
+			if (from !== "cdn") {
+				w.__assetCdn.error = true;
+				return;
+			}
+			markFailed();
+			for (var k = 0; k < added.length; k++) {
+				added[k].onerror = null;
+				added[k].remove();
+			}
+			added = [];
+			s.remove();
+			start(local, "portal", integrityOk);
+		};
+		d.head.appendChild(s);
+	}
+	if (maintenance) return start(local, "maintenance", null);
+	var enforced = new Promise(function(resolve) {
+		setTimeout(function() {
+			resolve(false);
+		}, C.timeoutMs);
+		import(probeOk).then(function() {
+			return import(probeBad).then(function() {
+				resolve(false);
+			}, function() {
+				resolve(true);
+			});
+		}, function() {
+			resolve(false);
+		});
+	});
+	if (last && Date.now() - last < C.failMs) return enforced.then(function(ok) {
+		start(local, "portal", ok);
+	});
+	var ctl = typeof AbortController === "function" ? new AbortController() : null;
+	var done = false;
+	var timer = 0;
+	function fallback(failed, ok) {
+		if (done) return;
+		done = true;
+		clearTimeout(timer);
+		if (failed) markFailed();
+		start(local, "portal", ok);
+	}
+	enforced.then(function(ok) {
+		if (!ok) return fallback(false, false);
+		timer = setTimeout(function() {
+			if (ctl) ctl.abort();
+			fallback(true, true);
+		}, C.timeoutMs);
+		return fetch(C.cdn + C.entry, {
+			method: "HEAD",
+			mode: "cors",
+			cache: "no-store",
+			signal: ctl ? ctl.signal : void 0
+		}).then(function(r) {
+			var type = r.headers.get("content-type") || "";
+			if (!r.ok || !/javascript/i.test(type)) return fallback(true, true);
+			if (done) return;
+			done = true;
+			clearTimeout(timer);
+			store("sessionStorage", RELOAD, null);
+			start(C.cdn, "cdn", true);
+		}, function() {
+			fallback(true, true);
+		});
+	});
+})({"cdn":"https://linchao0815.github.io/agame-cdn/zuma-party/","portals":["https://agame.duckdns.org/games/zuma-party/","https://168-110-59-183.sslip.io/games/zuma-party/"],"entry":"assets/index-Bw5q5LUI.js","preload":["assets/rolldown-runtime-hePW80VL.js","assets/pixi~index~browserAll~webworkerAll~CanvasRenderer~WebGLRenderer~WebGPURenderer-blsTu2TH.js","assets/pixi~index~browserAll~webworkerAll~CanvasRenderer-B3s0Q06J.js","assets/pixi~index~browserAll~webworkerAll-BSIPi_Uh.js","assets/pixi~index~CanvasRenderer~WebGLRenderer~WebGPURenderer-DcGDnYOe.js","assets/pixi~index~CanvasRenderer~WebGPURenderer-DW4VB6OB.js","assets/pixi~index~CanvasRenderer-B9PERQ72.js","assets/pixi~index-DWTX1b3l.js"],"css":[],"sri":{"assets/index-Bw5q5LUI.js":"sha384-2owUgNKVLvXzo8r5q+w9SRtERFMOipsW1UPdMvVysJw4e1rol3gmDY+BWqHkg+Ch","assets/pixi~browserAll-D32TCFJL.js":"sha384-j09XuZFGdMbpD4O+zlDwje//eNpagsP39Wm8OWxRSNNMNdBTptM5xTjMc4rfN14t","assets/pixi~browserAll~webworkerAll-Br-Lr-Oj.js":"sha384-gzhcFWuRT2FIYGzKkwW13hwFsoBDgdzpzOXKlNOzrsknD9RBkuxpSMcb89BKpe70","assets/pixi~index-DWTX1b3l.js":"sha384-vmGDT2AM90ejZObBWs7sNKDnfOLBNAYtVucCuC0IpCfBXY2W5HQA+/cVN8jdcqeb","assets/pixi~index~CanvasRenderer-B9PERQ72.js":"sha384-Lse2+SoB244UvQebUpBgJb0bJ0mHg6dj0ONppaZAZ4AhzohGeuQIRtJ1kKN+rk3w","assets/pixi~index~CanvasRenderer~WebGLRenderer~WebGPURenderer-DcGDnYOe.js":"sha384-KzXlhOy8RTaguLcZ0xq+8BHbVq8k+Kn292GvHDRjEy09dKGGdH3O4KuVAu09N54Q","assets/pixi~index~CanvasRenderer~WebGPURenderer-DW4VB6OB.js":"sha384-tszTvLtb7UPrlYTMvEg2ZnRcV37cgpm/yScqpgEQaxKbJ3Y5lAkyCE/6Bc0zwG0g","assets/pixi~index~WebGLRenderer-DW6Ial3e.js":"sha384-I7rr2pjFYar5SDvvR+QjNJArz/gFls6iOvSQNT3z0j3wnDQ4PZGHYIxMbo7Bkfw5","assets/pixi~index~WebGLRenderer~WebGPURenderer-D1Q7afDE.js":"sha384-OF0FHlUJUyIrjGu6OYbvfGq4C/HC9bj4XTWVQQsxDQIHMS2N8U1OfnWGSF2ZBbiW","assets/pixi~index~WebGPURenderer-Dpi1lB1t.js":"sha384-6f0P+cQBagFuth+UIdEshD/DixPnQWkoLTZcrGeJsimtStsanD9r956BNRdzHLOK","assets/pixi~index~browserAll~webworkerAll-BSIPi_Uh.js":"sha384-L09WxvwaCoznxzPZAjimYJmZ91DsjcciuDxr7Z/+sNOeInrJoL0n7RCrNMyDxu26","assets/pixi~index~browserAll~webworkerAll~CanvasRenderer-B3s0Q06J.js":"sha384-SGQPh8czaizpNOwzcNXuyV7LaZihGEP8aImOJ8J3ke9NPOCND1fgJO1dbsRgE8Pg","assets/pixi~index~browserAll~webworkerAll~CanvasRenderer~WebGLRenderer~WebGPURenderer-blsTu2TH.js":"sha384-1Lk7hclD+jAr9c2jOUJ2qApWKoDkiiviD4xYbYGXTOvMyn1oHJuDNVhOdC+zC3lu","assets/pixi~webworkerAll-B-LpummB.js":"sha384-k3iVb7BkvePKc6VpIV4dSF3hxZ9MJiu9Ow5oTa2Xt2PtQu7DXnvJBgvhyNLuJyZs","assets/rolldown-runtime-hePW80VL.js":"sha384-IByvdQ9C8ZQsuk2kGiIBN/JFticnExQLZS0hqbEY2/527AMsvHLb3FQFuVTiIpj4","assets/server-session-CzR5V7MT.js":"sha384-0NgnNWodXOSiNe12kCBRb/U4zoE6GtmzW7MGE+bTSIk0SRW9qKaSVx5cQ068CUOh","assets/tracks1-BQ5afEH9.js":"sha384-aalnlE1CY77VbNvSa/Pz7mY3eiE2R32RXgPOfOpTSYEW79TL2XjQye6XGKKZ99f0","assets/tracks2-C82vgHHs.js":"sha384-4Ch9UkCiQke8qJSEMAJFx/4URkrKEkfaCn57k09nNaf3LhXox74WeU4R4hsT6nO0","assets/tracks3-DsIWLBWv.js":"sha384-a3g3zE8KYFHhrj2zLo4kOUMK0L5p1TESdfEiuUOsf3Glf8HumxioGiHGjO7f1Ejm","assets/tracks4-DUvJLcsC.js":"sha384-c/KxWJ7uKiUrROq4uG1lCYbhJQmW7i3uVC2B4oYUufka6GNMvLEl5ov1AnseeaVT","assets/tracks5-D3AnNU8z.js":"sha384-i2/GUHloYu/e8Q3nxKpDT9tzC01iom07ddWGo3Flx0ZG9xAcno8mbAkT+zhIJ9n8","assets/tracks6-BEdKtsMm.js":"sha384-fbmL239eLsfSV3GDdfws+fF541psOPnQVCB96qDZp1ZfU1ji0eBhzLdtl31U02fs","assets/tracks7-4SV8mOzy.js":"sha384-HtcZpJ2xdli9xq4WnPe+pxB8j6KNVJN51bjmDMw3s0mTitIRPGI1vstn7iP9GZJR"},"probe":"assets/asset-cdn-probe.js","probeSri":"sha384-TfNfbmwP7o3QYLOKT2ylblYjdqWkjpHkmoyPgwQk/jxycBM1LOGLUePUz56+OBZF","timeoutMs":3000,"bootTimeoutMs":15000,"maintenancePollMs":10000,"failMs":1800000});</script>
+  </head>
+<body>
+</body>
+</html>

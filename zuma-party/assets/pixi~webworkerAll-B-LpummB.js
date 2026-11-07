@@ -1,0 +1,1 @@
+import{n as e}from"./rolldown-runtime-hePW80VL.js";import"./pixi~index~browserAll~webworkerAll-BSIPi_Uh.js";import"./pixi~browserAll~webworkerAll-Br-Lr-Oj.js";var t=e({});export{t};
