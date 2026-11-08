@@ -1,0 +1,1 @@
+var e={king:7,advisor:6,elephant:5,chariot:4,horse:3,cannon:2,pawn:1},t=[`king`,`advisor`,`elephant`,`chariot`,`horse`,`cannon`,`pawn`],n={turnSeconds:30,drawAnswerSeconds:15,drawOffersPerGame:3,quietMoveLimit:50,repetitionLimit:3,matchHintSeconds:60,rematchSeconds:30,computerDelayMs:800,seatSecondsPvp:60,seatSecondsComputer:120};export{t as n,e as r,n as t};
